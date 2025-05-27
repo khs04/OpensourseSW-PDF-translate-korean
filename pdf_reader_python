@@ -123,7 +123,7 @@ def crop_image(element, pageObj):
 
 # Create a function to convert the PDF to images
 def convert_to_images(input_file):
-    poppler_path = r"C:\Users\학교계정_김현송\Desktop\poppler-24.08.0\Library\bin" #poppler 다운 후 경로 지정
+    poppler_path = r"C:\Users\학교계정_김현송\Desktop\poppler-24.08.0\Library\bin" #poppler다운후 경로지정
     images = convert_from_path(input_file, poppler_path=poppler_path)
     image = images[0]
     output_file = 'PDF_image.png'
@@ -132,18 +132,42 @@ def convert_to_images(input_file):
 
 # Create a function to read text from images
 def image_to_text(image_path):
-    # Read the image
+    # Tesseract 경로 지정 (연 컴 기준)
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    
+    # 이미지 읽기
     img = Image.open(image_path)
-    # Extract the text from the image
-    text = pytesseract.image_to_string(img)
+    
+    # 한글 OCR 수행 (영어면 'eng'으로)
+    text = pytesseract.image_to_string(img, lang='kor')
     return text
+
+#OCR 백업 함수 추가
+def ocr_entire_pdf(pdf_path):
+    poppler_path = r"C:\Users\학교계정_김현송\Desktop\poppler-24.08.0\Library\bin"
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+    pages = convert_from_path(pdf_path, poppler_path=poppler_path)
+    all_text = ""
+
+    for idx, image in enumerate(pages):
+        image_file = f"ocr_page_{idx}.png"
+        image.save(image_file, 'PNG')
+
+        ocr_text = pytesseract.image_to_string(image, lang='eng')  # 또는 'kor+eng'
+        all_text += f"\n==== OCR_Page_{idx} ====\n{ocr_text}\n"
+
+        os.remove(image_file)
+
+    return all_text
+
 
 
 # In[5]:
 
 
 # Find the PDF path
-pdf_path = 'Example PDF.pdf'
+pdf_path = 'test_eng_treatise.pdf'
 
 # Create a pdf file object
 pdfFileObj = open(pdf_path, 'rb')
@@ -195,53 +219,41 @@ for pagenum, page in enumerate(extract_pages(pdf_path)):
     page_elements.sort(key=lambda a: a[0], reverse=True)
 
 
-    # Find the elements that composed a page
-    for i,component in enumerate(page_elements):
-        # Extract the element of the page layout
-        element = component[1]
+# Find the elements that composed a page
+for i, component in enumerate(page_elements):
+    element = component[1]
 
-        # Check the elements for tables
-        if table_in_page == -1:
-            pass
-        else:
-            if is_element_inside_any_table(element, page ,tables):
-                table_found = find_table_for_element(element,page ,tables)
-                if table_found == table_in_page and table_found != None:    
-                    page_content.append(text_from_tables[table_in_page])
-                    page_text.append('table')
-                    line_format.append('table')
-                    table_in_page+=1
-                # Pass this iteration because the content of this element was extracted from the tables
-                continue
+    # Check the elements for tables
+    if table_in_page == -1:
+        pass
+    else:
+        if is_element_inside_any_table(element, page ,tables):
+            table_found = find_table_for_element(element,page ,tables)
+            if table_found == table_in_page and table_found != None:    
+                page_content.append(text_from_tables[table_in_page])
+                page_text.append('table')
+                line_format.append('table')
+                table_in_page+=1
+            continue
 
-        if not is_element_inside_any_table(element,page,tables):
+    if not is_element_inside_any_table(element,page,tables):
 
-            # Check if the element is text element
-            if isinstance(element, LTTextContainer):
-                # Use the function to extract the text and format for each text element
-                (line_text, format_per_line) = text_extraction(element)
-                # Append the text of each line to the page text
-                page_text.append(line_text)
-                # Append the format for each line containing text
-                line_format.append(format_per_line)
+        # 텍스트 처리 + 그림 설명
+        if isinstance(element, LTTextContainer):
+            (line_text, format_per_line) = text_extraction(element)
+
+            if 'Fig.' in line_text or 'Figure' in line_text:
+                page_content.append("[그림 설명] " + line_text.strip())
+            else:
                 page_content.append(line_text)
 
+            page_text.append(line_text)
+            line_format.append(format_per_line)
 
-            # Check the elements for images
-            if isinstance(element, LTFigure):
-                # Crop the image from PDF
-                crop_image(element, pageObj)
-                # Convert the croped pdf to image
-                convert_to_images('cropped_image.pdf')
-                # Extract the text from image
-                image_text = image_to_text('PDF_image.png')
-                text_from_images.append(image_text)
-                page_content.append(image_text)
-                # Add a placeholder in the text and format lists
-                page_text.append('image')
-                line_format.append('image')
-                # Update the flag for image detection
-                image_flag = True
+        # 이미지 요소는 그냥 건너뜀
+        elif isinstance(element, LTFigure):
+            continue
+
 
 
     # Create the key of the dictionary
@@ -268,8 +280,19 @@ if image_flag:
 
 # In[9]:
 
+# 구조 기반 텍스트 추출 결과: 페이지별로 구분 출력
+print("\n===== PDF 구조 기반 텍스트 추출 결과 =====\n")
+for page_key in sorted(text_per_page.keys(), key=lambda x: int(x.split('_')[1])):
+    print(f"{page_key}")
+    print("-" * 50)
+    print(''.join(text_per_page[page_key][4]))
+    print("\n")
 
-# Display the content of the page
-result = ''.join(text_per_page['Page_0'][4])
-print(result)
+# OCR 백업 결과도 페이지별로 구분 출력
+print("\n===== OCR 백업 텍스트 추출 결과 =====\n")
+ocr_result = ocr_entire_pdf(pdf_path)
+print(ocr_result)
+
+
+
 
