@@ -1,29 +1,107 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox, filedialog
+import fitz  # PyMuPDF
 import argostranslate.package
 import argostranslate.translate
+import time
+import os
 
-package_path = r"C:\Users\hureu\Downloads\translate-en_ko-1_1.argosmodel"
-argostranslate.package.install_from_path(package_path)
+# ✅ 모델 설치 (이미 설치했다면 주석 처리해도 됨)
+model_path = r"C:\Users\hureu\Downloads\translate-en_ko-1_1.argosmodel"
+if os.path.exists(model_path):
+    argostranslate.package.install_from_path(model_path)
 
+# ✅ 번역 모델 준비
 installed_languages = argostranslate.translate.get_installed_languages()
-if len(installed_languages) == 0:
-    print("⚠️ 설치된 번역 모델이 없습니다.")
-else:
-    texts = [
-        "The objective of our research is to create an agent-based environment within which meeting scheduling can be performed and optimized. This system aims to improve productivity through efficient scheduling.", "Our team is focused on developing AI-based solutions for real-world problems."
-    ]
+from_lang = next((lang for lang in installed_languages if lang.code == "en"), None)
+to_lang = next((lang for lang in installed_languages if lang.code == "ko"), None)
 
-    output_path = r"C:\Users\hureu\Documents\translated_output.txt"
+if not from_lang or not to_lang:
+    messagebox.showerror("오류", "영어-한국어 번역 모델이 설치되지 않았습니다.")
+    exit()
+
+translation = from_lang.get_translation(to_lang)
+
+translated_results = []
+
+# ✅ PDF 열기 및 텍스트 추출
+def load_pdf():
+    file_path = filedialog.askopenfilename(filetypes=[("PDF 파일", "*.pdf")])
+    if not file_path:
+        return
+
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            for idx, source_text in enumerate(texts, 1):
-                print("원문:", source_text)
-                translated_text = argostranslate.translate.translate(source_text, "en", "ko")
-                print("번역:", translated_text)
-
-                f.write("원문: " + source_text + "\n")
-                f.write("번역: " + translated_text + "\n\n")
-
-        print(f"\n✅ 모든 문장 처리 완료, 결과가 '{output_path}'에 저장되었습니다.")
+        doc = fitz.open(file_path)
+        all_text = ""
+        for page in doc:
+            all_text += page.get_text()
+        input_textbox.delete("1.0", tk.END)
+        input_textbox.insert(tk.END, all_text)
+        messagebox.showinfo("성공", "PDF 내용을 성공적으로 불러왔습니다.")
     except Exception as e:
-        print("❌ 파일 저장 중 오류 발생:", e)
+        messagebox.showerror("오류", f"PDF 불러오기 실패:\n{e}")
 
+# ✅ 번역 함수
+def translate_texts():
+    input_text = input_textbox.get("1.0", tk.END).strip()
+    if not input_text:
+        messagebox.showwarning("경고", "번역할 문장이 없습니다.")
+        return
+
+    lines = input_text.splitlines()
+    output_textbox.delete("1.0", tk.END)
+    translated_results.clear()
+
+    for idx, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        translated = translation.translate(line)
+        result = f"=== 문장 {idx} ===\n원문: {line}\n번역: {translated}\n\n"
+        output_textbox.insert(tk.END, result)
+        output_textbox.see(tk.END)
+        translated_results.append(result)
+        root.update()
+        time.sleep(0.01)
+
+    save_button.config(state=tk.NORMAL)
+
+# ✅ 저장 함수
+def save_results():
+    if not translated_results:
+        messagebox.showwarning("경고", "저장할 내용이 없습니다.")
+        return
+    file_path = filedialog.asksaveasfilename(defaultextension=".txt",
+                                             filetypes=[("텍스트 파일", "*.txt"), ("모든 파일", "*.*")])
+    if file_path:
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.writelines(translated_results)
+            messagebox.showinfo("성공", f"파일이 저장되었습니다:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("오류", f"파일 저장 중 오류:\n{e}")
+
+# ✅ GUI 설정
+root = tk.Tk()
+root.title("PDF 영어 → 한국어 번역기")
+
+frame = tk.Frame(root)
+frame.pack(padx=10, pady=10)
+
+load_button = tk.Button(frame, text="PDF 열기", command=load_pdf)
+load_button.grid(row=0, column=0, padx=5)
+
+translate_button = tk.Button(frame, text="번역 시작", command=translate_texts)
+translate_button.grid(row=0, column=1, padx=5)
+
+save_button = tk.Button(frame, text="결과 저장", command=save_results, state=tk.DISABLED)
+save_button.grid(row=0, column=2, padx=5)
+
+tk.Label(root, text="PDF에서 불러온 원문:").pack()
+input_textbox = scrolledtext.ScrolledText(root, width=100, height=12)
+input_textbox.pack(padx=10, pady=5)
+
+tk.Label(root, text="번역 결과:").pack()
+output_textbox = scrolledtext.ScrolledText(root, width=100, height=15)
+output_textbox.pack(padx=10, pady=5)
+
+root.mainloop()
