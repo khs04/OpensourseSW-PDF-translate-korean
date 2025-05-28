@@ -6,6 +6,8 @@ import argostranslate.translate
 import time
 import os
 
+from common import file_path, ocr_result1
+
 # ✅ 모델 설치 (이미 설치했다면 주석 처리해도 됨)
 model_path = r"C:\Users\hureu\Downloads\translate-en_ko-1_1.argosmodel"
 if os.path.exists(model_path):
@@ -24,39 +26,47 @@ translation = from_lang.get_translation(to_lang)
 
 translated_results = []
 
-# ✅ PDF 열기 및 텍스트 추출
+from pdf_reader_python import extract_text
+
+# ✅ PDF 열기 
 def load_pdf():
     file_path = filedialog.askopenfilename(filetypes=[("PDF 파일", "*.pdf")])
     if not file_path:
         return
-
     try:
-        doc = fitz.open(file_path)
-        all_text = ""
-        for page in doc:
-            all_text += page.get_text()
+        extracted_text = extract_text(file_path)
+        
         input_textbox.delete("1.0", tk.END)
-        input_textbox.insert(tk.END, all_text)
-        messagebox.showinfo("성공", "PDF 내용을 성공적으로 불러왔습니다.")
+        input_textbox.insert(tk.END, extracted_text)
+        messagebox.showinfo("성공", "PDF 텍스트 추출 완료!")
+        
     except Exception as e:
-        messagebox.showerror("오류", f"PDF 불러오기 실패:\n{e}")
+        messagebox.showerror("오류", f"텍스트 추출 실패:\n{e}")
 
 # ✅ 번역 함수
 def translate_texts():
     input_text = input_textbox.get("1.0", tk.END).strip()
     if not input_text:
-        messagebox.showwarning("경고", "번역할 문장이 없습니다.")
+        messagebox.showwarning("경고", "번역할 내용이 없습니다.")
         return
 
     lines = input_text.splitlines()
     output_textbox.delete("1.0", tk.END)
     translated_results.clear()
 
-    for idx, line in enumerate(lines, 1):
-        if not line.strip():
+    chunk_size = 10
+    total_chunks = (len(lines) + chunk_size - 1) // chunk_size
+
+    for i in range(total_chunks):
+        chunk = lines[i*chunk_size : (i+1)*chunk_size]
+        chunk_text = "\n".join(chunk)
+        if not chunk_text.strip():
             continue
-        translated = translation.translate(line)
-        result = f"=== 문장 {idx} ===\n원문: {line}\n번역: {translated}\n\n"
+        try:
+            translated = translation.translate(chunk_text)
+        except Exception as e:
+            translated = f"[번역 오류: {e}]"
+        result = f"=== {i*chunk_size+1}~{min((i+1)*chunk_size, len(lines))}줄 번역 ===\n{translated}\n\n"
         output_textbox.insert(tk.END, result)
         output_textbox.see(tk.END)
         translated_results.append(result)
